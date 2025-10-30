@@ -73,8 +73,7 @@ class WeatherETL:
         }
         
         # Configuración de API
-        self.api_key = os.getenv('API_KEY', 'REPLACE_ME')
-        self.api_base = os.getenv('API_BASE', 'https://api.openweathermap.org/data/2.5/weather')
+        self.api_base = os.getenv('API_BASE', 'https://archive-api.open-meteo.com/v1/archive')
         self.max_workers = int(os.getenv('MAX_WORKERS', 8))
         self.request_timeout = int(os.getenv('REQUEST_TIMEOUT', 30))
         self.max_retries = int(os.getenv('MAX_RETRIES', 3))
@@ -114,7 +113,7 @@ class WeatherETL:
         wait=wait_exponential(multiplier=1, min=4, max=10),
         retry=retry_if_exception_type((requests.exceptions.RequestException,))
     )
-    def fetch_weather_data(self, site: Dict) -> Optional[Dict]:
+    def fetch_weather_data(self, site: Dict) -> Optional[List[Dict]]:
         """
         Obtiene datos meteorológicos para un sitio específico.
         
@@ -122,15 +121,17 @@ class WeatherETL:
             site: Diccionario con información del sitio (lat, lon, site_id)
             
         Returns:
-            Diccionario con datos meteorológicos normalizados o None si falla
+            Lista de diccionarios con datos meteorológicos normalizados o None si falla
         """
         try:
             # Construir URL de la API
             params = {
-                'lat': site['lat'],
-                'lon': site['lon'],
-                'appid': self.api_key,
-                'units': 'metric'  # Para obtener temperatura en Celsius
+                'latitude': site['latitude'],
+                'longitude': site['longitude'],
+                'timezone': site['timezone'],
+                'start_date': '2025-09-14',
+                'end_date': '2025-10-28',
+                'hourly': 'temperature_2m,relative_humidity_2m,precipitation',
             }
             
             # Realizar llamada a la API
@@ -143,10 +144,10 @@ class WeatherETL:
             
             data = response.json()
             
-            # Normalizar datos
-            normalized_data = self._normalize_weather_data(data, site['site_id'])
+            # Normalizar datos (ahora retorna una lista)
+            normalized_data = self._normalize_weather_data(data, site)
             
-            logger.debug(f"Datos obtenidos para sitio {site['site_id']} ({site['name']})")
+            logger.debug(f"Datos obtenidos para sitio {site['site_id']} ({site['name']}) - {len(normalized_data)} registros")
             return normalized_data
             
         except requests.exceptions.RequestException as e:
@@ -156,44 +157,59 @@ class WeatherETL:
             logger.error(f"Error inesperado para sitio {site['site_id']}: {e}")
             return None
     
-    def _normalize_weather_data(self, raw_data: Dict, site_id: int) -> Dict:
+    def _normalize_weather_data(self, raw_data: Dict, site: Dict) -> List[Dict]:
         """
-        Normaliza los datos meteorológicos de la API.
-        
-        Args:
-            raw_data: Datos crudos de la API
-            site_id: ID del sitio
-            
-        Returns:
-            Diccionario con datos normalizados
+        Normaliza los datos meteorológicos de la API (formato archive).
+        Retorna una lista de registros normalizados para todo el rango de fechas.
         """
         try:
-            # Extraer timestamp de observación
-            observation_time = datetime.fromtimestamp(
-                raw_data['dt'], 
-                tz=timezone.utc
-            )
-            
-            # Normalizar datos principales
-            normalized = {
-                'site_id': site_id,
-                'source': 'openweathermap',
-                'observation_time': observation_time,
-                'fetch_time': datetime.now(timezone.utc),
-                'temp_c': raw_data['main'].get('temp'),
-                'humidity_pct': raw_data['main'].get('humidity'),
-                'pressure_hpa': raw_data['main'].get('pressure'),
-                'weather_description': raw_data['weather'][0].get('description') if raw_data.get('weather') else None,
-                'raw_payload': json.dumps(raw_data),
-                'ingestion_run_id': self.ingestion_run_id
-            }
-            
-            return normalized
-            
+            site_id = site['site_id']
+            now_utc = datetime.now(timezone.utc)
+            normalized_records = []
+
+            if "hourly" in raw_data:
+                hourly = raw_data["hourly"]
+                times = hourly.get("time", [])
+                temps = hourly.get("temperature_2m", [])
+                hums = hourly.get("relative_humidity_2m", [])
+                precs = hourly.get("precipitation", [])
+
+                if not times:
+                    raise ValueError("No se encontraron timestamps en la respuesta")
+
+                # Procesar TODOS los registros del rango de fechas
+                for i in range(len(times)):
+                    observation_time = datetime.fromisoformat(times[i])
+                    
+                    temp_c = temps[i] if i < len(temps) else None
+                    humidity_pct = hums[i] if i < len(hums) else None
+                    precipitation_mm = precs[i] if i < len(precs) else None
+
+                    normalized_record = {
+                        "site_id": site_id,
+                        "source": "open-meteo",
+                        "observation_time": observation_time,
+                        "fetch_time": now_utc,
+                        "temp_c": temp_c,
+                        "humidity_pct": humidity_pct,
+                        "pressure_hpa": None,
+                        "weather_description": f"precipitation={precipitation_mm}mm",
+                        "raw_payload": json.dumps(raw_data),
+                        "ingestion_run_id": self.ingestion_run_id
+                    }
+                    normalized_records.append(normalized_record)
+
+                logger.debug(f"Procesados {len(normalized_records)} registros para sitio {site_id}")
+                return normalized_records
+
+            else:
+                raise ValueError("Estructura de respuesta no reconocida (falta 'hourly')")
+
         except Exception as e:
             logger.error(f"Error normalizando datos para sitio {site_id}: {e}")
             raise
-    
+
+        
     def get_db_connection(self):
         """Obtiene una conexión a la base de datos MySQL."""
         try:
@@ -261,17 +277,23 @@ class WeatherETL:
             Tupla (éxito, mensaje)
         """
         try:
-            # Obtener datos meteorológicos
-            weather_data = self.fetch_weather_data(site)
+            # Obtener datos meteorológicos (ahora es una lista)
+            weather_data_list = self.fetch_weather_data(site)
             
-            if weather_data is None:
+            if weather_data_list is None or len(weather_data_list) == 0:
                 return False, f"No se pudieron obtener datos para {site['name']}"
             
-            # Guardar en base de datos
-            success = self.save_weather_data(weather_data)
+            # Guardar cada registro en base de datos
+            successful_saves = 0
+            for weather_data in weather_data_list:
+                success = self.save_weather_data(weather_data)
+                if success:
+                    successful_saves += 1
             
-            if success:
-                return True, f"Datos procesados exitosamente para {site['name']}"
+            if successful_saves == len(weather_data_list):
+                return True, f"Datos procesados exitosamente para {site['name']} - {successful_saves} registros guardados"
+            elif successful_saves > 0:
+                return False, f"Guardados parcialmente {successful_saves}/{len(weather_data_list)} registros para {site['name']}"
             else:
                 return False, f"Error guardando datos para {site['name']}"
                 
@@ -363,12 +385,6 @@ def main():
     )
     
     args = parser.parse_args()
-    
-    # Verificar que la API_KEY esté configurada
-    if os.getenv('API_KEY') == 'REPLACE_ME':
-        logger.error("ERROR: Debes configurar API_KEY en el archivo .env")
-        logger.error("Copia env.example a .env y completa los valores")
-        sys.exit(1)
     
     # Crear y ejecutar ETL
     etl = WeatherETL(dry_run=args.dry_run)

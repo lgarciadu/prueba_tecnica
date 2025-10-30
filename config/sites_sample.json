@@ -1,50 +1,58 @@
 [
   {
-    "site_id": 1,
+    "site_id": "MLA",
     "name": "Buenos Aires",
-    "lat": -34.6037,
-    "lon": -58.3816,
+    "latitude": -34.6037,
+    "longitude": -58.3816,
     "country": "Argentina",
     "timezone": "America/Argentina/Buenos_Aires"
   },
   {
-    "site_id": 2,
+    "site_id": "MLB",
     "name": "São Paulo",
-    "lat": -23.5505,
-    "lon": -46.6333,
+    "latitude": -23.5505,
+    "longitude": -46.6333,
     "country": "Brasil",
     "timezone": "America/Sao_Paulo"
   },
   {
-    "site_id": 3,
+    "site_id": "MLM",
+    "name": "Ciudad de México",
+    "latitude": 19.4326,
+    "longitude": -99.1332,
+    "country": "México",
+    "timezone": "America/Mexico_City"
+  },
+  {
+    "site_id": "MCO",
     "name": "Bogotá",
-    "lat": 4.7110,
-    "lon": -74.0721,
+    "latitude": 4.711,
+    "longitude": -74.0721,
     "country": "Colombia",
     "timezone": "America/Bogota"
   },
   {
-    "site_id": 4,
+    "site_id": "MLC",
     "name": "Santiago",
-    "lat": -33.4489,
-    "lon": -70.6693,
+    "latitude": -33.4489,
+    "longitude": -70.6693,
     "country": "Chile",
     "timezone": "America/Santiago"
   },
   {
-    "site_id": 5,
-    "name": "Lima",
-    "lat": -12.0464,
-    "lon": -77.0428,
-    "country": "Perú",
-    "timezone": "America/Lima"
+    "site_id": "MLU",
+    "name": "Montevideo",
+    "latitude": -34.9011,
+    "longitude": -56.1645,
+    "country": "Uruguay",
+    "timezone": "America/Montevideo"
   },
   {
-    "site_id": 6,
-    "name": "Ciudad de México",
-    "lat": 19.4326,
-    "lon": -99.1332,
-    "country": "México",
-    "timezone": "America/Mexico_City"
+    "site_id": "MPE",
+    "name": "Lima",
+    "latitude": -12.0464,
+    "longitude": -77.0428,
+    "country": "Perú",
+    "timezone": "America/Lima"
   }
 ]
