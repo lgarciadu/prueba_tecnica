@@ -1,0 +1,50 @@
+[
+  {
+    "site_id": 1,
+    "name": "Buenos Aires",
+    "lat": -34.6037,
+    "lon": -58.3816,
+    "country": "Argentina",
+    "timezone": "America/Argentina/Buenos_Aires"
+  },
+  {
+    "site_id": 2,
+    "name": "São Paulo",
+    "lat": -23.5505,
+    "lon": -46.6333,
+    "country": "Brasil",
+    "timezone": "America/Sao_Paulo"
+  },
+  {
+    "site_id": 3,
+    "name": "Bogotá",
+    "lat": 4.7110,
+    "lon": -74.0721,
+    "country": "Colombia",
+    "timezone": "America/Bogota"
+  },
+  {
+    "site_id": 4,
+    "name": "Santiago",
+    "lat": -33.4489,
+    "lon": -70.6693,
+    "country": "Chile",
+    "timezone": "America/Santiago"
+  },
+  {
+    "site_id": 5,
+    "name": "Lima",
+    "lat": -12.0464,
+    "lon": -77.0428,
+    "country": "Perú",
+    "timezone": "America/Lima"
+  },
+  {
+    "site_id": 6,
+    "name": "Ciudad de México",
+    "lat": 19.4326,
+    "lon": -99.1332,
+    "country": "México",
+    "timezone": "America/Mexico_City"
+  }
+]

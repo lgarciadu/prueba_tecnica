@@ -1,0 +1,26 @@
+# Dependencias para el ETL de datos climáticos
+# Versión de Python objetivo: 3.10+
+
+# Cliente MySQL para Python
+pymysql==1.1.0
+
+# Manejo de variables de entorno
+python-dotenv==1.0.0
+
+# Cliente HTTP para llamadas a APIs
+requests==2.31.0
+
+# Manejo de reintentos con backoff exponencial
+tenacity==8.2.3
+
+# Barra de progreso para operaciones largas
+tqdm==4.66.1
+
+# Extensiones de tipado para Python < 3.10
+typing-extensions==4.8.0
+
+# Utilidades de fecha y hora
+python-dateutil==2.8.2
+
+# Validación de datos
+pydantic==2.5.0
