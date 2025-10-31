@@ -54,12 +54,19 @@ nano .env  # o tu editor preferido
 ```
 
 **Variables importantes a configurar:**
-- `API_KEY`: Tu clave de API de OpenWeatherMap
-- `DB_PASSWORD`: Contraseña de MySQL (por defecto: rootpass)
+- `DB_HOST`: Host de MySQL (por defecto: 127.0.0.1)
+- `DB_PORT`: Puerto de MySQL (por defecto: 3306)
+- `DB_USER`: Usuario de MySQL
+- `DB_PASSWORD`: Contraseña de MySQL
+- `DB_NAME`: Nombre de la base de datos
+- `API_BASE`: URL base para API archive (ETL batch)
+- `API_BASE_FORECAST`: URL base para API forecast (ETL streaming, opcional, default: https://api.open-meteo.com/v1/forecast)
+- `MAX_WORKERS`: Número de workers paralelos (por defecto: 4 para streaming, 8 para batch)
+- `STREAMING_BATCH_SIZE`: Tamaño de lote para streaming (por defecto: 10)
 
 ## 🏃‍♂️ Uso
 
-### Ejecutar el Job ETL
+### Ejecutar el Job ETL (Batch/Histórico)
 
 ```bash
 # Ejecución normal (escribe a la base de datos)
@@ -68,6 +75,28 @@ python etl_weather.py
 # Ejecución de prueba (no escribe a la base de datos)
 python etl_weather.py --dry-run
 ```
+
+### Ejecutar el Job ETL (Streaming/Forecast)
+
+El ETL en modo streaming procesa datos de forecast en tiempo real y los guarda inmediatamente:
+
+```bash
+# Ejecución única (escribe a la base de datos)
+python etl_weather_streaming.py
+
+# Ejecución de prueba (no escribe a la base de datos)
+python etl_weather_streaming.py --dry-run
+
+# Ejecución continua cada hora (3600 segundos)
+python etl_weather_streaming.py --interval 3600
+
+# Ejecución continua cada 15 minutos
+python etl_weather_streaming.py --interval 900
+```
+
+**Diferencias entre Batch y Streaming:**
+- **Batch (`etl_weather.py`)**: Procesa datos históricos (archive API), guarda en lotes grandes
+- **Streaming (`etl_weather_streaming.py`)**: Procesa forecast en tiempo real, guarda inmediatamente en lotes pequeños
 
 ### Verificar Duplicados
 
@@ -91,7 +120,8 @@ weather-data-product/
 ├── config/
 │   └── sites_sample.json      # Sitios meteorológicos de ejemplo
 ├── etl/
-│   ├── etl_weather.py         # Job ETL principal
+│   ├── etl_weather.py         # Job ETL principal (batch/histórico)
+│   ├── etl_weather_streaming.py  # Job ETL en modo streaming
 │   ├── check_duplicates_mysql.py  # Verificador de duplicados
 │   ├── requirements.txt       # Dependencias Python
 │   └── env.example           # Variables de entorno de ejemplo

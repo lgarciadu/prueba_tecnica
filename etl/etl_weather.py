@@ -37,7 +37,7 @@ from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryCallState
 from tqdm import tqdm
 
-from utils.db_queries import get_insert_weather_observation_query, format_weather_data_for_insert
+from utils.db_queries import get_insert_weather_observation_query
 
 # Configurar logging
 logging.basicConfig(
@@ -247,32 +247,78 @@ class WeatherETL:
             logger.error(f"Error conectando a MySQL: {e}")
             raise
     
-    def save_weather_data(self, weather_data: Dict) -> bool:
+    def save_weather_data_batch(self, weather_data_list: List[Dict]) -> Tuple[int, int]:
         """
-        Guarda los datos meteorológicos en la base de datos.
+        Guarda múltiples registros meteorológicos usando una sola conexión y batch insert.
         
         Args:
-            weather_data: Diccionario con datos normalizados
+            weather_data_list: Lista de diccionarios con datos normalizados
             
         Returns:
-            True si se guardó exitosamente, False en caso contrario
+            Tupla (registros_exitosos, total_registros)
         """
         if self.dry_run:
-            logger.info(f"[DRY-RUN] Guardando datos para sitio {weather_data['site_id']}")
-            return True
+            logger.info(f"[DRY-RUN] Guardando {len(weather_data_list)} registros")
+            return len(weather_data_list), len(weather_data_list)
         
+        if not weather_data_list:
+            return 0, 0
+        
+        successful = 0
         try:
             with self.get_db_connection() as conn:
                 with conn.cursor() as cursor:
                     insert_query = get_insert_weather_observation_query()
-                                        
-                    cursor.execute(insert_query)
-                    conn.commit()     
-            return True
+                    
+                    # Preparar todos los parámetros como tuplas
+                    params_list = []
+                    for weather_data in weather_data_list:
+                        params = (
+                            weather_data['site_id'],
+                            weather_data['observation_time'],
+                            weather_data['temp_c'],
+                            weather_data['humidity_pct'],
+                            weather_data['precipitation_mm'],
+                            weather_data['ingestion_run_id'],
+                            weather_data['fetch_time']
+                        )
+                        params_list.append(params)
+                    
+                    # Ejecutar batch insert
+                    cursor.executemany(insert_query, params_list)
+                    conn.commit()
+                    successful = len(params_list)
+            
+            return successful, len(weather_data_list)
             
         except Exception as e:
-            logger.info(f"Error guardando datos para sitio {weather_data['site_id']}: {e}")
-            return False
+            logger.error(f"Error guardando batch de datos: {e}")
+            # Intentar guardar uno por uno como fallback
+            return self._save_weather_data_fallback(weather_data_list)
+    
+    def _save_weather_data_fallback(self, weather_data_list: List[Dict]) -> Tuple[int, int]:
+        """Fallback: guarda registros uno por uno si el batch falla."""
+        successful = 0
+        for weather_data in weather_data_list:
+            try:
+                with self.get_db_connection() as conn:
+                    with conn.cursor() as cursor:
+                        insert_query = get_insert_weather_observation_query()
+                        params = (
+                            weather_data['site_id'],
+                            weather_data['observation_time'],
+                            weather_data['temp_c'],
+                            weather_data['humidity_pct'],
+                            weather_data['precipitation_mm'],
+                            weather_data['ingestion_run_id'],
+                            weather_data['fetch_time']
+                        )
+                        cursor.execute(insert_query, params)
+                        conn.commit()
+                        successful += 1
+            except Exception as e:
+                logger.warning(f"Error guardando registro individual: {e}")
+        return successful, len(weather_data_list)
     
     def process_site(self, site: Dict) -> Tuple[bool, str]:
         """
@@ -291,17 +337,13 @@ class WeatherETL:
             if weather_data_list is None or len(weather_data_list) == 0:
                 return False, f"No se pudieron obtener datos para {site['name']}"
             
-            # Guardar cada registro en base de datos
-            successful_saves = 0
-            for weather_data in weather_data_list:
-                success = self.save_weather_data(weather_data)
-                if success:
-                    successful_saves += 1
+            # Guardar todos los registros en batch usando una sola conexión
+            successful_saves, total_records = self.save_weather_data_batch(weather_data_list)
             
-            if successful_saves == len(weather_data_list):
+            if successful_saves == total_records:
                 return True, f"Datos procesados exitosamente para {site['name']} - {successful_saves} registros guardados"
             elif successful_saves > 0:
-                return False, f"Guardados parcialmente {successful_saves}/{len(weather_data_list)} registros para {site['name']}"
+                return False, f"Guardados parcialmente {successful_saves}/{total_records} registros para {site['name']}"
             else:
                 return False, f"Error guardando datos para {site['name']}"
                 

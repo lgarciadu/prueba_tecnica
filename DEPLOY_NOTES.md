@@ -10,20 +10,31 @@ cd "/Users/lgarciaduart/Documents/Prueba tecnica Meli/weather-data-product"
 
 # Verificar que Docker esté funcionando
 docker --version
-docker compose --version
+docker compose --version  # v2 (nuevo)
+docker-compose --version   # v1 (antiguo)
 ```
 
 ### 2. Levantar MySQL con Docker
 
 ```bash
+# Verificar versión de Docker Compose
+docker compose version  # v2 (nuevo)
+# o
+docker-compose --version  # v1 (antiguo)
+
 # Levantar el servicio MySQL
+# Para Docker Compose v2:
 docker compose up -d
+# Para Docker Compose v1:
+docker-compose up -d
 
 # Verificar que el contenedor esté corriendo
-docker compose ps
+docker compose ps  # v2
+docker-compose ps  # v1
 
 # Ver logs para confirmar inicialización
-docker compose logs mysql
+docker compose logs mysql  # v2
+docker-compose logs mysql  # v1
 ```
 
 ### 3. Configurar Python y Dependencias
@@ -112,16 +123,78 @@ HAVING cnt > 1;
 
 ## 🔧 Solución de Problemas Comunes
 
+### Problema: "docker-compose up se queda pegado"
+
+**Causas comunes y soluciones:**
+
+1. **Ejecutar en segundo plano con `-d`:**
+```bash
+# En lugar de: docker compose up
+# Usar: docker compose up -d
+docker compose up -d
+
+# Esto inicia los contenedores en segundo plano
+# Puedes seguir usando la terminal mientras los servicios corren
+```
+
+2. **Verificar si MySQL está iniciando:**
+```bash
+# Ver logs en tiempo real
+docker compose logs -f mysql
+
+# Presiona Ctrl+C para salir de los logs
+# Si ves mensajes de "ready for connections", MySQL está funcionando
+```
+
+3. **Limpiar y reiniciar si es necesario:**
+```bash
+# Detener y eliminar contenedores
+docker compose down
+
+# Eliminar volúmenes (¡CUIDADO! Esto borra los datos)
+# docker compose down -v
+
+# Levantar de nuevo
+docker compose up -d
+
+# Esperar unos segundos y verificar estado
+sleep 10
+docker compose ps
+```
+
+4. **Verificar que el puerto 3306 no esté ocupado:**
+```bash
+# En Mac/Linux:
+lsof -i :3306
+
+# Si está ocupado, detén el otro servicio o cambia el puerto en docker-compose.yml
+```
+
+5. **Revisar estado del contenedor:**
+```bash
+# Ver estado actual
+docker compose ps
+
+# Ver logs de error
+docker compose logs mysql | tail -50
+
+# Verificar salud del contenedor
+docker inspect weather-mysql | grep -A 10 Health
+```
+
 ### Error: "No se pudo conectar a MySQL"
 ```bash
 # Verificar que MySQL esté corriendo
-docker compose ps
+docker compose ps  # v2
+docker-compose ps  # v1
 
 # Reiniciar MySQL
-docker compose restart mysql
+docker compose restart mysql  # v2
+docker-compose restart mysql  # v1
 
 # Ver logs de error
-docker compose logs mysql
+docker compose logs mysql  # v2
+docker-compose logs mysql  # v1
 ```
 
 ### Error: "No se encontraron sitios"
@@ -171,6 +244,6 @@ chmod +x etl/*.py
 
 Si encuentras problemas:
 1. Revisar logs del ETL: `python etl_weather.py --dry-run`
-2. Verificar logs de MySQL: `docker compose logs mysql`
+2. Verificar logs de MySQL: `docker compose logs mysql` (v2) o `docker-compose logs mysql` (v1)
 3. Consultar README.md para más detalles
 4. Revisar docs/architecture.md para contexto técnico

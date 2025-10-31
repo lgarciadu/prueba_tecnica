@@ -6,6 +6,10 @@
 CREATE DATABASE IF NOT EXISTS testdb;
 USE testdb;
 
+-- Asegurar que el usuario use mysql_native_password para compatibilidad
+ALTER USER 'weather_user'@'%' IDENTIFIED WITH mysql_native_password BY 'weather_pass';
+FLUSH PRIVILEGES;
+
 -- Eliminar tabla si existe (para facilitar reinicios en desarrollo)
 DROP TABLE IF EXISTS weather_observations;
 
@@ -13,21 +17,17 @@ DROP TABLE IF EXISTS weather_observations;
 CREATE TABLE weather_observations (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     site_id VARCHAR(64) NOT NULL,
-    source VARCHAR(64) NOT NULL,
     observation_time DATETIME(3) NOT NULL,
-    fetch_time DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
     temp_c DECIMAL(5,2) NULL,
     humidity_pct TINYINT NULL,
-    weather_description VARCHAR(255) NULL,
-    raw_payload JSON NULL,
+    precipitation_mm VARCHAR(255) NULL,
     ingestion_run_id VARCHAR(64) NULL,
-    audit_created_by VARCHAR(64) DEFAULT 'etl_job',
+    fetch_time DATETIME(3) NOT NULL DEFAULT (UTC_TIMESTAMP(3)),
     audit_created_dttm DATETIME(3) DEFAULT (UTC_TIMESTAMP(3)),
-    audit_updated_by VARCHAR(64) NULL,
     audit_updated_dttm DATETIME(3) NULL,
     
     -- Clave única compuesta para garantizar idempotencia
-    UNIQUE KEY uq_site_source_obs (site_id, source, observation_time),
+    UNIQUE KEY uq_site_source_obs (site_id, observation_time, temp_c),
     
     -- Índices para optimizar consultas frecuentes
     INDEX idx_site_obs_time (site_id, observation_time),

@@ -3,6 +3,7 @@
 
 # Cliente MySQL para Python
 pymysql==1.1.0
+cryptography==41.0.7
 
 # Manejo de variables de entorno
 python-dotenv==1.0.0

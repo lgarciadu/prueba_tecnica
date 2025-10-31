@@ -16,21 +16,18 @@ Uso:
 
 # Query de inserción/actualización de observaciones meteorológicas
 # Utiliza ON DUPLICATE KEY UPDATE para garantizar idempotencia
+# La clave única es (site_id, observation_time, temp_c) según init.sql
 INSERT_WEATHER_OBSERVATION = """
 INSERT INTO weather_observations 
-(site_id, source, observation_time, fetch_time, temp_c, humidity_pct, 
-weather_description, raw_payload, ingestion_run_id)
-VALUES (%(site_id)s, %(source)s, %(observation_time)s, %(fetch_time)s, 
-        %(temp_c)s, %(humidity_pct)s, %(weather_description)s, 
-        %(raw_payload)s, %(ingestion_run_id)s)
+(site_id, observation_time, temp_c, humidity_pct, 
+precipitation_mm, ingestion_run_id, fetch_time)
+VALUES (%s, %s, %s, %s, %s, %s, %s)
 ON DUPLICATE KEY UPDATE
     fetch_time = VALUES(fetch_time),
     temp_c = VALUES(temp_c),
     humidity_pct = VALUES(humidity_pct),
-    weather_description = VALUES(weather_description),
-    raw_payload = VALUES(raw_payload),
+    precipitation_mm = VALUES(precipitation_mm),
     ingestion_run_id = VALUES(ingestion_run_id),
-    audit_updated_by = 'etl_job',
     audit_updated_dttm = UTC_TIMESTAMP(3)
 """
 
