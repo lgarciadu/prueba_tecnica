@@ -48,7 +48,7 @@ pip install -r requirements.txt
 # Copiar archivo de ejemplo
 cp env.example .env
 
-# Editar archivo .env (IMPORTANTE: configurar API_KEY)
+# Editar archivo .env si desea cambiar las credenciales de la DB o demas configuraciones
 nano .env
 ```
 
@@ -59,7 +59,6 @@ DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=rootpass
 DB_NAME=testdb
-API_KEY=TU_API_KEY_AQUI
 API_BASE=https://api.openweathermap.org/data/2.5/weather
 MAX_WORKERS=8
 REQUEST_TIMEOUT=30
@@ -67,14 +66,7 @@ MAX_RETRIES=3
 LOG_LEVEL=INFO
 ```
 
-### 5. Obtener API Key de OpenWeatherMap
-
-1. Visitar: https://openweathermap.org/api
-2. Registrarse (gratis)
-3. Obtener API key
-4. Reemplazar `TU_API_KEY_AQUI` en el archivo `.env`
-
-### 6. Ejecutar el ETL
+### 5. Ejecutar el ETL
 
 ```bash
 # Verificar que el entorno virtual esté activo
@@ -87,7 +79,7 @@ python etl_weather.py --dry-run
 python etl_weather.py
 ```
 
-### 7. Verificar Resultados
+### 6. Verificar Resultados
 
 ```bash
 # Verificar que no hay duplicados
@@ -95,8 +87,8 @@ python check_duplicates_mysql.py
 
 # Conectar a MySQL para ver datos (opcional)
 docker exec -it weather-mysql mysql -u root -prootpass testdb
-```
 
+# Conectarse a la DB usando Datagrip, DBeaver, etc.. y verificar (opcional)
 **Comandos SQL útiles:**
 ```sql
 -- Ver estructura de la tabla
@@ -130,15 +122,6 @@ docker compose restart mysql
 
 # Ver logs de error
 docker compose logs mysql
-```
-
-### Error: "API_KEY no configurada"
-```bash
-# Verificar archivo .env
-cat .env | grep API_KEY
-
-# Asegurarse de que el archivo existe
-ls -la .env
 ```
 
 ### Error: "No se encontraron sitios"

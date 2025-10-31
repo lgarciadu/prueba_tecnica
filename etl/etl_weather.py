@@ -18,7 +18,7 @@ Ejemplos:
     # Ejecución de prueba (sin escribir a BD)
     python etl_weather.py --dry-run
 
-Autor: Data Engineering Team
+Autor: Mariana Garcia
 """
 
 import argparse
@@ -34,8 +34,10 @@ from typing import Dict, List, Optional, Tuple
 import pymysql
 import requests
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryCallState
 from tqdm import tqdm
+
+from utils.db_queries import get_insert_weather_observation_query, format_weather_data_for_insert
 
 # Configurar logging
 logging.basicConfig(
@@ -48,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 class WeatherETL:
     """Clase principal para el procesamiento ETL de datos climáticos."""
-    
+
     def __init__(self, dry_run: bool = False):
         """
         Inicializa el ETL con configuración desde variables de entorno.
@@ -62,22 +64,22 @@ class WeatherETL:
         # Cargar variables de entorno
         load_dotenv()
         
-        # Configuración de base de datos
-        self.db_config = {
-            'host': os.getenv('DB_HOST', '127.0.0.1'),
-            'port': int(os.getenv('DB_PORT', 3306)),
-            'user': os.getenv('DB_USER', 'root'),
-            'password': os.getenv('DB_PASSWORD', 'rootpass'),
-            'database': os.getenv('DB_NAME', 'testdb'),
-            'charset': 'utf8mb4'
-        }
-        
-        # Configuración de API
-        self.api_base = os.getenv('API_BASE', 'https://archive-api.open-meteo.com/v1/archive')
-        self.max_workers = int(os.getenv('MAX_WORKERS', 8))
-        self.request_timeout = int(os.getenv('REQUEST_TIMEOUT', 30))
-        self.max_retries = int(os.getenv('MAX_RETRIES', 3))
-        
+        if self._validate_env_variables():
+            self.db_config = {
+                'host': os.getenv('DB_HOST'),
+                'port': int(os.getenv('DB_PORT')),
+                'user': os.getenv('DB_USER'),
+                'password': os.getenv('DB_PASSWORD'),
+                'database': os.getenv('DB_NAME'),
+                'charset': 'utf8mb4'
+            }
+            self.api_base = os.getenv('API_BASE')
+            self.max_workers = int(os.getenv('MAX_WORKERS'))
+            self.request_timeout = int(os.getenv('REQUEST_TIMEOUT'))
+            self.max_retries = int(os.getenv('MAX_RETRIES'))
+        else: 
+            raise EnvironmentError("Variables de entorno no configuradas correctamente")
+
         # Estadísticas de ejecución
         self.stats = {
             'total_sites': 0,
@@ -88,7 +90,13 @@ class WeatherETL:
         
         logger.info(f"Iniciando ETL - Run ID: {self.ingestion_run_id}")
         logger.info(f"Modo dry-run: {'SÍ' if self.dry_run else 'NO'}")
-    
+
+    def _validate_env_variables(self) -> bool:
+        """
+        Valida las variables de entorno.
+        """
+        return all(os.getenv(var) for var in ['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'])
+
     def load_sites(self) -> List[Dict]:
         """
         Carga la lista de sitios desde el archivo JSON de configuración.
@@ -108,11 +116,28 @@ class WeatherETL:
             logger.error(f"Error cargando sitios: {e}")
             raise
     
+    def log_retry_attempt(retry_state: RetryCallState):
+        """
+        Loggea cada reintento de la API.
+        """
+        attempt_number = retry_state.attempt_number
+        exception = retry_state.outcome.exception()
+        next_wait = retry_state.next_action.sleep if retry_state.next_action else None
+        site_name = retry_state.args[1].get('name') if len(retry_state.args) > 1 and isinstance(retry_state.args[1], dict) else "Unknown"
+
+        logger.warning(
+            f"WARNING: Reintento {attempt_number} para {site_name} "
+            f"debido a: {type(exception).__name__} - {exception}. "
+            f"Siguiente intento en {next_wait:.1f} segundos." if next_wait else ""
+        )
+
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((requests.exceptions.RequestException,))
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),  # backoff exponencial
+    retry=retry_if_exception_type((requests.exceptions.RequestException,)),
+    before_sleep=log_retry_attempt
     )
+
     def fetch_weather_data(self, site: Dict) -> Optional[List[Dict]]:
         """
         Obtiene datos meteorológicos para un sitio específico.
@@ -123,39 +148,42 @@ class WeatherETL:
         Returns:
             Lista de diccionarios con datos meteorológicos normalizados o None si falla
         """
-        try:
-            # Construir URL de la API
-            params = {
-                'latitude': site['latitude'],
-                'longitude': site['longitude'],
-                'timezone': site['timezone'],
-                'start_date': '2025-09-14',
-                'end_date': '2025-10-28',
-                'hourly': 'temperature_2m,relative_humidity_2m,precipitation',
-            }
-            
-            # Realizar llamada a la API
-            response = requests.get(
-                self.api_base,
-                params=params,
-                timeout=self.request_timeout
-            )
-            response.raise_for_status()
-            
+        # Construir URL de la API - scheduler
+        params = {
+            'latitude': site['latitude'],
+            'longitude': site['longitude'],
+            'timezone': site['timezone'],
+            ## CAMBIAR ESTO 
+            ## CAMBIAR ESTO 
+            ## NO HARCODEAR VARIABLES 
+            'start_date': '2024-01-01',
+            'end_date': '2025-10-30',
+            'hourly': 'temperature_2m,relative_humidity_2m,precipitation',
+        }
+        
+        # Realizar llamada a la API
+        response = requests.get(
+            self.api_base,
+            params=params,
+            timeout=self.request_timeout
+        )
+        
+        if response.status_code in (429, 404, 405, 408, 409,500, 502, 503, 504):
+            # Errores temporales → se loggean como warning para reintento
+            logger.warning(f"WARNING: Respuesta {response.status_code} de la API para {site['site_id']}. Reintentando...")
+            raise requests.exceptions.RequestException(f"Respuesta {response.status_code}")
+        # generar alerta si no se obtuvieron datos
+        elif response.status_code == 200: 
+            logger.info(f"Datos obtenidos para sitio {site['site_id']} ({site['name']}) - {len(response.json())} registros")
             data = response.json()
             
-            # Normalizar datos (ahora retorna una lista)
             normalized_data = self._normalize_weather_data(data, site)
-            
+         
             logger.debug(f"Datos obtenidos para sitio {site['site_id']} ({site['name']}) - {len(normalized_data)} registros")
             return normalized_data
-            
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Error en API para sitio {site['site_id']}: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error inesperado para sitio {site['site_id']}: {e}")
-            return None
+        else:
+            logger.error(f"Estado aceptado pero no se obtuvieron datos para {site['site_id']}: status code: {response.status_code}")
+            raise requests.exceptions.RequestException(f"Respuesta {response.status_code}")
     
     def _normalize_weather_data(self, raw_data: Dict, site: Dict) -> List[Dict]:
         """
@@ -174,36 +202,36 @@ class WeatherETL:
                 hums = hourly.get("relative_humidity_2m", [])
                 precs = hourly.get("precipitation", [])
 
-                if not times:
+                if not times or times is None:
                     raise ValueError("No se encontraron timestamps en la respuesta")
-
+                # generar alerta si no se obtuvieron timestamps
                 # Procesar TODOS los registros del rango de fechas
                 for i in range(len(times)):
                     observation_time = datetime.fromisoformat(times[i])
                     
+                    # Verificación defensiva: evitar IndexError si las listas tienen diferentes longitudes
                     temp_c = temps[i] if i < len(temps) else None
                     humidity_pct = hums[i] if i < len(hums) else None
                     precipitation_mm = precs[i] if i < len(precs) else None
 
                     normalized_record = {
                         "site_id": site_id,
-                        "source": "open-meteo",
                         "observation_time": observation_time,
                         "fetch_time": now_utc,
                         "temp_c": temp_c,
                         "humidity_pct": humidity_pct,
-                        "pressure_hpa": None,
-                        "weather_description": f"precipitation={precipitation_mm}mm",
-                        "raw_payload": json.dumps(raw_data),
+                        "precipitation_mm": f"{precipitation_mm}",
                         "ingestion_run_id": self.ingestion_run_id
                     }
                     normalized_records.append(normalized_record)
 
-                logger.debug(f"Procesados {len(normalized_records)} registros para sitio {site_id}")
+                logger.info(f"Procesados {len(normalized_records)} registros para sitio {site_id}")
                 return normalized_records
-
+  
             else:
-                raise ValueError("Estructura de respuesta no reconocida (falta 'hourly')")
+                logger.error(f"Estructura de respuesta no reconocida para sitio {site_id}") 
+                raise ValueError("Estructura de respuesta no reconocida.")
+
 
         except Exception as e:
             logger.error(f"Error normalizando datos para sitio {site_id}: {e}")
@@ -236,34 +264,14 @@ class WeatherETL:
         try:
             with self.get_db_connection() as conn:
                 with conn.cursor() as cursor:
-                    # Query de inserción con manejo de duplicados
-                    insert_query = """
-                    INSERT INTO weather_observations 
-                    (site_id, source, observation_time, fetch_time, temp_c, humidity_pct, 
-                     pressure_hpa, weather_description, raw_payload, ingestion_run_id)
-                    VALUES (%(site_id)s, %(source)s, %(observation_time)s, %(fetch_time)s, 
-                            %(temp_c)s, %(humidity_pct)s, %(pressure_hpa)s, %(weather_description)s, 
-                            %(raw_payload)s, %(ingestion_run_id)s)
-                    ON DUPLICATE KEY UPDATE
-                        fetch_time = VALUES(fetch_time),
-                        temp_c = VALUES(temp_c),
-                        humidity_pct = VALUES(humidity_pct),
-                        pressure_hpa = VALUES(pressure_hpa),
-                        weather_description = VALUES(weather_description),
-                        raw_payload = VALUES(raw_payload),
-                        ingestion_run_id = VALUES(ingestion_run_id),
-                        audit_updated_by = 'etl_job',
-                        audit_updated_dttm = UTC_TIMESTAMP(3)
-                    """
-                    
-                    cursor.execute(insert_query, weather_data)
-                    conn.commit()
-                    
-            logger.debug(f"Datos guardados para sitio {weather_data['site_id']}")
+                    insert_query = get_insert_weather_observation_query()
+                                        
+                    cursor.execute(insert_query)
+                    conn.commit()     
             return True
             
         except Exception as e:
-            logger.error(f"Error guardando datos para sitio {weather_data['site_id']}: {e}")
+            logger.info(f"Error guardando datos para sitio {weather_data['site_id']}: {e}")
             return False
     
     def process_site(self, site: Dict) -> Tuple[bool, str]:
